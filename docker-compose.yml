@@ -1,0 +1,61 @@
+version: '3'
+services:
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/template  # 🔥 Ensure this correctly maps your project!
+    environment:
+      DJANGO_SETTINGS_MODULE: "template.settings"
+    ports:
+      - "8000:8000"
+      - "5678:5678" #Debug
+    depends_on:
+      - db
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+
+  db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: postgresdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: testpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backup:
+    image: postgres:13
+    volumes:
+      - ./backups:/backups
+      - postgres_data:/var/lib/postgresql/data:ro
+    environment:
+      POSTGRES_DB: postgresdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: testpassword
+      POSTGRES_HOST: db
+      PGPASSWORD: testpassword
+    depends_on:
+      - db
+    entrypoint: |
+      bash -c '
+      mkdir -p /backups
+      while true; do
+        BACKUP_FILE="/backups/backup_$$(date +%Y%m%d_%H%M%S).sql"
+        echo "Creating backup: $$BACKUP_FILE"
+        pg_dump -h db -U user postgresdb > $$BACKUP_FILE
+        
+        # Compress the backup
+        gzip $$BACKUP_FILE
+        
+        # Delete backups older than 7 days
+        find /backups -name "backup_*.sql.gz" -type f -mtime +7 -delete
+        
+        # Sleep for 24 hours (86400 seconds)
+        echo "Backup completed. Next backup in 24 hours."
+        sleep 86400
+      done
+      '
+
+volumes:
+  postgres_data:
